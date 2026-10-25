@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "examId": "sample-exam-001",
+  "examTitle": "Đề mẫu tiếng Việt",
+  "attemptId": "attempt-browser-001",
+  "submittedAt": "2026-10-25T12:00:00.000Z",
+  "student": {"name": "Nguyễn An", "className": "10A"},
+  "answers": [1, 0, 2],
+  "score": 2,
+  "correctCount": 2,
+  "totalQuestions": 3
+}
