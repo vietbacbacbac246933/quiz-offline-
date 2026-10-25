@@ -8,7 +8,7 @@ Công cụ tạo đề ôn tập chạy trong trình duyệt. Bản deploy tĩnh
 npm run build
 ```
 
-Vercel dùng `npm run build` và thư mục output `dist` theo `vercel.json`. Chưa deploy thực tế từ repository này.
+Vercel dùng `npm run build` và thư mục output `dist` theo `vercel.json`. Chưa deploy thực tế từ repository này. Build sao chép `public/teacher.html` thành `dist/index.html` (trang chính) cùng các thư viện trình duyệt.
 
 ## Dữ liệu và sử dụng
 

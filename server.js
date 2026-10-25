@@ -13,7 +13,6 @@ process.on('uncaughtException', function(err) {
 
 var express = require('express');
 var http = require('http');
-var socketIO = require('socket.io');
 var fs = require('fs');
 var path = require('path');
 var os = require('os');
@@ -125,11 +124,6 @@ var assetUpload = multer({
 
 var app = express();
 var server = http.createServer(app);
-var io = socketIO(server, {
-    transports: ['websocket', 'polling'],
-    pingTimeout: 60000,
-    pingInterval: 25000
-});
 
 // Render cap port dong qua bien moi truong PORT
 var PORT = parseInt(process.env.PORT, 10) || 3456;
@@ -194,6 +188,11 @@ function isSecureRequest(req) {
     var proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
     return proto === 'https';
 }
+
+// Trang chính: công cụ tạo đề offline (public/index.html đã xóa cùng phòng thi)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'teacher.html'));
+});
 
 // Route cho trang giáo viên - yêu cầu đăng nhập
 app.get('/teacher', (req, res) => {
@@ -547,9 +546,6 @@ app.post('/api/select-student', (req, res) => {
     }
     saveStudentStatus();
     
-    // Thông báo cho tất cả client
-    io.emit('studentStatusUpdated', { stt, status: studentStatus[stt] });
-    
     res.json({ success: true, student });
 });
 
@@ -577,7 +573,6 @@ app.post('/api/deselect-student', (req, res) => {
         delete socketToStt[socketId];
         saveStudentStatus();
 
-        io.emit('studentStatusUpdated', { stt, status: studentStatus[stt] });
     }
     
     res.json({ success: true });
@@ -608,9 +603,6 @@ app.post('/api/report-wrong-selection', (req, res) => {
     
     reports.push(report);
     saveReports();
-    
-    // Thông báo cho giáo viên
-    io.emit('newReport', report);
     
     res.json({ success: true, report });
 });
@@ -676,11 +668,6 @@ app.post('/api/approve-report', (req, res) => {
     saveReports();
     saveResults();
     
-    // Thông báo cập nhật
-    io.emit('reportProcessed', { reportId, status: 'approved', correctSTT: report.correctSTT });
-    io.emit('studentStatusUpdated', { stt: report.wrongSTT, status: studentStatus[report.wrongSTT] });
-    io.emit('studentStatusUpdated', { stt: report.correctSTT, status: studentStatus[report.correctSTT] });
-    
     res.json({ success: true });
 });
 
@@ -699,7 +686,6 @@ app.post('/api/reject-report', (req, res) => {
     report.status = 'rejected';
     saveReports();
     
-    io.emit('reportProcessed', { reportId, status: 'rejected' });
     
     res.json({ success: true });
 });
@@ -721,8 +707,6 @@ app.post('/api/allow-retry', (req, res) => {
     studentStatus[stt].canRetry = true;
     saveStudentStatus();
     
-    io.emit('studentStatusUpdated', { stt, status: studentStatus[stt] });
-    io.emit('retryAllowed', { stt });
     
     res.json({ success: true });
 });
@@ -742,7 +726,6 @@ app.post('/api/reset-all-students', (req, res) => {
     });
     saveStudentStatus();
     
-    io.emit('allStudentsReset');
     
     res.json({ success: true });
 });
@@ -941,7 +924,6 @@ app.post('/api/questions', (req, res) => {
     normalized.options = normalized.options.map(function(o) { return sanitizeHtml(o); });
     questions.push(normalized);
     saveQuestions();
-    io.emit('questionsUpdated', questions.length);
     res.json({ success: true, total: questions.length });
 });
 
@@ -995,7 +977,6 @@ app.delete('/api/questions/:id', (req, res) => {
     if (id >= 0 && id < questions.length) {
         questions.splice(id, 1);
         saveQuestions();
-        io.emit('questionsUpdated', questions.length);
         res.json({ success: true });
     } else {
         res.status(404).json({ error: 'Không tìm thấy câu hỏi' });
@@ -1031,13 +1012,6 @@ app.post('/api/settings', (req, res) => {
     examSettings.practiceReviewMode = cfg.reviewMode;
     saveCurrentSession();
     persistCurrentExamSettings();
-    io.emit('examStatusChanged', examSettings.isOpen);
-    io.emit('settingsChanged', {
-        practiceMode: examSettings.practiceMode,
-        practiceMaxAttempts: examSettings.practiceMaxAttempts,
-        practiceTimeLimitMinutes: examSettings.practiceTimeLimitMinutes,
-        practiceReviewMode: examSettings.practiceReviewMode
-    });
     res.json({ success: true });
 });
 
@@ -1053,8 +1027,6 @@ app.post('/api/exam/open', (req, res) => {
     
     examSettings.isOpen = true;
     saveCurrentSession();
-    io.emit('examStatusChanged', true);
-    io.emit('examOpened');
     res.json({ success: true, message: 'Bài thi đã mở' });
 });
 
@@ -1066,8 +1038,6 @@ app.post('/api/exam/close', (req, res) => {
     
     examSettings.isOpen = false;
     saveCurrentSession();
-    io.emit('examStatusChanged', false);
-    io.emit('examClosed');
     res.json({ success: true, message: 'Bài thi đã đóng' });
 });
 
@@ -1161,7 +1131,6 @@ app.post('/api/session', (req, res) => {
         }
     });
     
-    io.emit('sessionChanged', currentSession);
     
     res.json({ 
         success: true, 
@@ -1325,7 +1294,6 @@ app.post('/api/classes/:classId/students', upload.single('file'), (req, res) => 
         // Nếu là lớp hiện tại, reload students
         if (classId === currentSession.classId) {
             loadStudents();
-            io.emit('studentsUpdated');
         }
         
         res.json({
@@ -1556,14 +1524,6 @@ app.post('/api/exams/switch', (req, res) => {
     // Lưu câu hỏi vào file chính
     saveQuestions();
     
-    // Thông báo cho tất cả client
-    io.emit('examSwitched', {
-        examId,
-        examName: exam.name,
-        questionCount: questions.length
-    });
-    io.emit('sessionChanged', currentSession);
-    
     res.json({ 
         success: true, 
         examName: exam.name,
@@ -1746,13 +1706,6 @@ app.post('/api/exams/new', (req, res) => {
     }
     
     saveQuestions();
-    
-    io.emit('examSwitched', {
-        examId: newExamId,
-        examName: name.trim(),
-        questionCount: 0
-    });
-    io.emit('sessionChanged', currentSession);
     
     res.json({ 
         success: true, 
@@ -2415,21 +2368,11 @@ app.post('/api/submit', (req, res) => {
     };
     
     // Tìm và cập nhật kết quả cũ nếu có, hoặc thêm mới
-    // Chi phat thong tin ngan: ban cu phat ca "details" (co the vai MB neu de
-    // co anh) cho MOI socket, gom ca 40 hoc sinh -> ton RAM va lo du lieu.
-    var notify = {
-        studentSTT: studentSTT,
-        studentName: studentName,
-        score: graded.score,
-        maxScore: graded.maxScore
-    };
     var existingIndex = results.findIndex(r => r.studentSTT == studentSTT);
     if (existingIndex >= 0) {
         results[existingIndex] = result;
-        io.emit('resultUpdated', notify);
     } else {
         results.push(result);
-        io.emit('newResult', notify);
     }
     saveResults();
     
@@ -2441,7 +2384,6 @@ app.post('/api/submit', (req, res) => {
         studentStatus[studentSTT].canRetry = false;
         saveStudentStatus();
 
-        io.emit('studentStatusUpdated', { stt: studentSTT, status: studentStatus[studentSTT] });
     }
 
     // Xóa server progress sau khi nộp bài
@@ -2478,7 +2420,6 @@ app.delete('/api/results', (req, res) => {
     }
     results = [];
     saveResults();
-    io.emit('resultsCleared');
     res.json({ success: true });
 });
 
@@ -2702,7 +2643,6 @@ app.post('/api/upload-students', express.raw({ type: '*/*', limit: '10mb' }), (r
         loadStudents();
         
         // Phát sự kiện cập nhật
-        io.emit('studentsUpdated');
         
         res.json({
             success: true,
@@ -2775,7 +2715,6 @@ app.post('/api/import-json-file', upload.single('file'), (req, res) => {
         questions = validQuestions;
         saveQuestions();
         
-        io.emit('questionsUpdated', questions.length);
         
         res.json({
             success: true,
@@ -2842,7 +2781,6 @@ app.post('/api/upload-questions-json', express.json({ limit: '10mb' }), (req, re
         questions = questions.concat(validQuestions);
         saveQuestions();
         
-        io.emit('questionsUpdated', questions.length);
         
         res.json({
             success: true,
@@ -2962,7 +2900,6 @@ app.post('/api/import-word', docxUpload.single('file'), async (req, res) => {
 
         questions = questions.concat(parsedQuestions);
         saveQuestions();
-        io.emit('questionsUpdated', questions.length);
         res.json({ success: true, imported: parsedQuestions.length, total: questions.length, warnings: warnings });
     }).catch(function(err) {
         console.error('Lỗi đọc file Word:', err);
@@ -3219,7 +3156,6 @@ app.post('/api/import/confirm', function (req, res) {
     if (destination === 'current') {
         questions = questions.concat(saved);
         saveQuestions();
-        io.emit('questionsUpdated', questions.length);
         importSessions.remove(body.sessionId);
         return res.json(Object.assign({
             success: true, destination: 'current',
@@ -4489,65 +4425,6 @@ function parseQuestionsFromText(text, opts) {
     
     return questions;
 }
-
-// Socket.IO
-io.on('connection', function(socket) {
-    console.log('[CONNECT] Co nguoi ket noi:', socket.id);
-    
-    // Gửi socket ID cho client
-    socket.emit('connected', { socketId: socket.id });
-    
-    // Nhận thông báo khi học sinh rời tab
-    socket.on('tabLeave', function(data) {
-        console.log('[WARN] Hoc sinh ' + data.name + ' (STT ' + data.stt + ') roi khoi trang lan ' + data.count);
-
-        // Lưu vào student status (debounce để không ghi disk liên tục)
-        if (studentStatus[data.stt]) {
-            studentStatus[data.stt].tabLeaveCount = data.count;
-            studentStatus[data.stt].lastTabLeave = data.time;
-            _saveStudentStatusDebounced();
-        }
-
-        // Thông báo cho giáo viên (teacher dashboard)
-        io.emit('studentTabLeave', {
-            stt: data.stt,
-            name: data.name,
-            count: data.count,
-            time: data.time
-        });
-    });
-
-    // Nhận thông báo khi học sinh thoát fullscreen
-    socket.on('fullscreenExit', function(data) {
-        console.log('[WARN] Hoc sinh ' + data.name + ' (STT ' + data.stt + ') THOAT FULLSCREEN lan ' + data.count);
-
-        if (studentStatus[data.stt]) {
-            studentStatus[data.stt].fullscreenExitCount = data.count;
-            studentStatus[data.stt].lastFullscreenExit = data.time;
-            _saveStudentStatusDebounced();
-        }
-
-        io.emit('studentFullscreenExit', {
-            stt: data.stt,
-            name: data.name,
-            count: data.count,
-            time: data.time
-        });
-    });
-    
-    // Khi ngắt kết nối, hủy chọn học sinh nếu chưa hoàn thành
-    socket.on('disconnect', function() {
-        console.log('[DISCONNECT] Ngat ket noi:', socket.id);
-        var stt = socketToStt[socket.id];
-        if (stt && studentStatus[stt] && studentStatus[stt].selectedBy === socket.id && !studentStatus[stt].completed) {
-            studentStatus[stt].selected = false;
-            studentStatus[stt].selectedBy = null;
-            saveStudentStatus();
-            io.emit('studentStatusUpdated', { stt: stt, status: studentStatus[stt] });
-        }
-        delete socketToStt[socket.id];
-    });
-});
 
 // Trả lỗi JSON gọn cho các lỗi upload (multer) thay vì trang HTML mặc định.
 app.use(function (err, req, res, next) {
