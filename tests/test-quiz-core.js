@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('assert');
+require('../public/quiz-core.js');
+const c=globalThis.QuizCore;
+const exam=c.validateExam({title:'Ôn tập tiếng Việt',questions:[{text:'Câu 1: 2 + 2 = ?',options:['3','4','5','6'],answer:1}]});
+assert.equal(exam.questions.length,1);assert.ok(exam.id);
+assert.throws(()=>c.validateExam({questions:[{text:'x',options:['a'],answer:0}]}),/2 đến 10/);
+assert.throws(()=>c.validateExam({questions:[{text:'x',options:['a','b'],answer:-1}]}),/đáp án/);
+assert.throws(()=>c.validateExam({questions:[{id:'dup',text:'x',options:['a','b'],answer:0},{id:'dup',text:'y',options:['a','b'],answer:0}]}),/ID câu hỏi bị trùng/);
+assert.throws(()=>c.validateExam({questions:[{text:'x',options:['a',''],answer:0}]}),/phương án trống/);
+const html=c.standalone(exam);assert.ok(html.startsWith('<!doctype html>'));assert.ok(html.includes('Ôn tập tiếng Việt'));assert.ok(!/https?:\/\//.test(html));assert.ok(html.includes('attemptId'));assert.ok(html.includes('</script></html>'));
+assert.throws(()=>c.result({}),/thiếu/);
+const r=c.result({examId:exam.id,attemptId:'attempt-1',answers:[1],score:1,student:{name:'An'}});assert.equal(r.student.name,'An');
+assert.equal(c.result({...r,attemptId:'attempt-2'}).attemptId,'attempt-2');
+const aggregated=c.aggregateResults([{name:'a.json',data:r},{name:'dup.json',data:r},{name:'broken.json',data:{}}]);
+assert.equal(aggregated.results.length,1);assert.equal(aggregated.errors.length,2);
+const XLSX=require('xlsx'),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{'Họ tên':r.student.name,'Điểm':r.score,'ID lượt làm bài':r.attemptId}]),'Ket qua');
+const roundTrip=XLSX.read(XLSX.write(wb,{type:'buffer',bookType:'xlsx'}),{type:'buffer'});const sheet=XLSX.utils.sheet_to_json(roundTrip.Sheets['Ket qua']);assert.equal(sheet[0]['Họ tên'],'An');assert.equal(sheet[0]['Điểm'],1);
+const hostile=c.standalone(c.validateExam({title:'<img src=x>',questions:[{text:'</script><img src=x onerror=1>',options:['<b>x</b>','y'],answer:0}]}));
+assert.ok(hostile.includes('&lt;img src=x&gt;')&&!hostile.includes('<img src=x onerror=1>'));
+console.log('quiz-core: passed 9 assertions');
+
+const marker='<script>';const start=html.lastIndexOf(marker);const end=html.lastIndexOf('</script></html>');assert.ok(start>=0&&end>start,'standalone app script is present');new Function(html.slice(start+marker.length,end));assert.ok(!html.includes('<script src=')&&!html.includes('https://'));console.log('standalone HTML inline script parses with no external URLs');
